@@ -1,0 +1,140 @@
+
+<!-- saved from url=(0060)http://evanmiller.org/how-not-to-sort-by-average-rating.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+    <title>How Not To Sort By Average Rating</title>
+        <link rel="stylesheet" type="text/css" href="./How Not To Sort By Average Rating_files/emiller.css">
+        <style type="text/css">
+            code {
+                background-color: #e3e3e3;
+            }
+            a.source {
+                font-family: monospace;
+            }
+            div.aside {
+                border: 2px dashed #6ecf4d;
+                margin: 20px;
+                padding: 10px;
+            }
+            div.aside code {
+                background-color: white;
+            }
+            div.figure {
+                border: 1px solid black;
+                margin: 20px;
+                padding: 10px;
+                padding-top: 20px;
+                text-align: center;
+            }
+        </style>
+</head>
+<body>
+        <div id="content">
+            <a href="http://evanmiller.org/index.html"><img src="./How Not To Sort By Average Rating_files/header.png"></a>
+            <div style="padding: 0px 20px;">
+<h1>How Not To Sort By Average Rating</h1>
+
+<p>By <a href="http://evanmiller.org/">Evan Miller</a></p>
+
+<p><em>February 6, 2009</em> (<a href="http://evanmiller.org/how-not-to-sort-by-average-rating.html#changes">Changes</a>)</p>
+
+<p><strong>PROBLEM</strong>: You are a web programmer. You have users. Your users rate stuff on your site. You want to put the highest-rated stuff at the top and lowest-rated at the bottom. You need some sort of "score" to sort by.</p>
+
+<p><strong>WRONG SOLUTION #1</strong>: Score = (Positive ratings) - (Negative ratings)</p>
+
+<p><em>Why it is wrong</em>: Suppose one item has 600 positive ratings and 400 negative ratings: 60% positive. Suppose item two has 5,500 positive ratings and 4,500 negative ratings: 55% positive. This algorithm puts item two (score = 1000, but only 55% positive) above item one (score = 200, and 60% positive). WRONG.</p>
+
+<p><em>Sites that make this mistake</em>: Urban Dictionary</p>
+
+<div class="figure">
+<img src="./How Not To Sort By Average Rating_files/rating-urban-dictionary.png">
+</div>
+
+<p><strong>WRONG SOLUTION #2</strong>: Score = Average rating = (Positive ratings) / (Total ratings)</p>
+
+<p><em>Why it is wrong</em>: Average rating works fine if you always have a ton of ratings, but suppose item 1 has 2 positive ratings and 0 negative ratings. Suppose item 2 has 100 positive ratings and 1 negative rating. This algorithm puts item two (tons of positive ratings) below item one (very few positive ratings). WRONG.</p>
+
+<p><em>Sites that make this mistake</em>: Amazon.com</p>
+
+<div class="figure">
+<img src="./How Not To Sort By Average Rating_files/rating-amazon.png">
+</div>
+
+<p><strong>CORRECT SOLUTION</strong>: Score = Lower bound of Wilson score confidence interval for a Bernoulli parameter</p>
+
+<p><em>Say what</em>: We need to balance the proportion of positive ratings with the uncertainty of a small number of observations. Fortunately, the math for this was worked out in 1927 by Edwin B. Wilson. What we want to ask is: <em>Given the ratings I have, there is a 95% chance that the "real" fraction of positive ratings is at least what?</em> Wilson gives the answer. Considering only positive and negative ratings (i.e. not a 5-star scale), the lower bound on the proportion of positive ratings is given by:</p>
+
+<div style="text-align: center;">
+<img src="./How Not To Sort By Average Rating_files/rating-equation.png">
+</div>
+
+<p>(For a lower bound use minus where it says plus/minus.) Here <em>p</em> is the <em>observed</em> fraction of positive ratings, <em>z</em><sub>&#945;/2</sub> is the (1-&#945;/2) quantile of the standard normal distribution, and <em>n</em> is the total number of ratings. The same formula implemented in Ruby:</p>
+
+<pre><code>
+require 'statistics2'
+
+def ci_lower_bound(pos, n, confidence)
+    if n == 0
+        return 0
+    end
+    z = Statistics2.pnormaldist(1-(1-confidence)/2)
+    phat = 1.0*pos/n
+    (phat + z*z/(2*n) - z * Math.sqrt((phat*(1-phat)+z*z/(4*n))/n))/(1+z*z/n)
+end
+</code></pre>
+
+<p><code>pos</code> is the number of positive ratings, <code>n</code> is the total number of ratings, and <code>confidence</code> refers to the statistical confidence level: pick 0.95 to have a 95% chance that your lower bound is correct, 0.975 to have a 97.5% chance, etc. The z-score in this function never changes, so if you don't have a statistics package handy or if performance is an issue you can always hard-code a value here for <code>z</code>. (Use 1.96 for a confidence level of 0.95.)</p>
+
+<p>Now for any item that has a bunch of positive and negative ratings, use that function to arrive at a score appropriate for sorting on, and be confident that you are using a good algorithm for doing so.</p>
+
+<p><em>Sites that are enlightened:</em> 
+<a href="http://blog.reddit.com/2009/10/reddits-new-comment-sorting-system.html">Reddit</a>,
+<a href="http://officialblog.yelp.com/2011/02/the-most-romantic-city-on-yelp-is.html">Yelp</a>,
+<a href="http://about.digg.com/blog/algorithm-experiments-better-comments">Digg</a></p>
+
+<p><strong>OTHER APPLICATIONS</strong></p>
+
+<p>The Wilson score confidence interval isn't just for sorting, of course. It is useful whenever you want to know with confidence what percentage of people took some sort of action. For example, it could be used to:</p>
+
+<ul>
+    <li>Detect spam/abuse: What percentage of people who see this item will mark it as spam?</li>
+    <li>Create a "best of" list: What percentage of people who see this item will mark it as "best of"?</li>
+    <li>Create a "Most emailed" list: What percentage of people who see this page will click "Email"?</li>
+</ul>
+
+<p>Indeed, it may be more useful in a "top rated" list to display those items with the highest number of positive ratings <em>per page view, download, or purchase</em>, rather than positive ratings per rating. Many people who find something mediocre will not bother to rate it at all; the act of viewing or purchasing something and declining to rate it contains useful information about that item's quality.</p>
+
+<a name="changes"></a>
+<p><strong>CHANGES</strong></p>
+<ul>
+    <li>Nov. 13, 2011: Fixed statistical confidence language and altered code example accordingly</li>
+    <li>Feb. 15: Clarified the statistical power example</li>
+    <li>Feb. 13 II: "Other applications"</li>
+    <li>Feb. 13: General clarification, plus a link to the relevant Wikipedia article.</li>
+    <li>Feb. 12, 2009: The example in "Wrong Solution #1" was erroneous. It has been fixed.</li>
+</ul>
+
+<p><strong>REFERENCES</strong></p>
+
+<p><a href="http://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval">Binomial proportion confidence interval (Wikipedia)</a></p>
+
+<p>Agresti, Alan and Brent A. Coull (1998), "Approximate is Better than 'Exact' for Interval Estimation of Binomial Proportions," <em>The American Statistician</em>, 52, 119-126.</p>
+
+<p>Wilson, E. B. (1927), "Probable Inference, the Law of Succession, and Statistical Inference," <em>Journal of the American Statistical Association</em>, 22, 209-212.</p>
+
+<p>
+<a href="http://evanmiller.org/">Back to Evan Miller's Home Page</a>
+</p>
+</div>
+</div>
+<script type="text/javascript">
+var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+</script><script src="./How Not To Sort By Average Rating_files/ga.js" type="text/javascript"></script>
+<script type="text/javascript">
+var pageTracker = _gat._getTracker("UA-5838049-1");
+pageTracker._trackPageview();
+</script>
+
+
+
+</body></html>
